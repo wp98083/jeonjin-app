@@ -48,6 +48,7 @@ img.pv{width:100%;border-radius:10px;margin-top:6px}
     <button class="ghost" onclick="$('#pick').click()">🖼 앨범에서 고르기</button>
     <input id="cam" type="file" accept="image/*" capture="environment">
     <input id="pick" type="file" accept="image/*">
+    <div id="pending"></div>
     <p class="sub" style="margin-top:14px">사진을 올리면 사무실 PC가 날짜와 번호를 읽어서 알려줘요. 확인하고 [인쇄]를 누르면 사무실 프린터로 나와요.</p>
   </section>
 
@@ -193,9 +194,36 @@ async function doPrint(){
 
 function done(msg, sub){ clearTimeout(pollTimer); $("#doneMsg").innerHTML = `<span class="ok">${msg}</span>`; $("#doneSub").innerText = sub||""; show("#vDone"); }
 function fail(msg){ clearTimeout(pollTimer); $("#doneMsg").innerHTML = `<span class="bad">❌ 실패</span>`; $("#doneSub").innerText = msg; show("#vDone"); }
-function reset(){ clearTimeout(pollTimer); jobId = null; show("#vStart"); }
+function reset(){ clearTimeout(pollTimer); jobId = null; show("#vStart"); loadPending(); }
+
+// 밀린 작업: PC가 꺼져 있을 때 올린 사진 / 읽기는 끝났는데 아직 인쇄 안 한 것
+async function listDir(d){
+  const r = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${d}?t=${Date.now()}`,
+    { cache:"no-store", headers:{ "Authorization":"Bearer "+TOKEN, "Accept":"application/vnd.github+json" } });
+  if (!r.ok) return [];
+  const j = await r.json(); return Array.isArray(j) ? j.map(x=>x.name) : [];
+}
+const idTime = id => { const m = id.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/); return m ? `${+m[2]}/${+m[3]} ${m[4]}:${m[5]}` : id; };
+async function loadPending(){
+  const box = $("#pending"); box.innerHTML = "";
+  try {
+    const waiting = (await listDir("inbox")).map(n=>n.replace(/\.\w+$/,""));
+    const stats = (await listDir("status")).map(n=>n.replace(/\.json$/,"")).sort().reverse().slice(0,10);
+    const items = [];
+    for (const id of waiting) items.push(`<div class="card"><b>⏳ ${idTime(id)} 올린 사진</b><p class="sub">PC가 꺼져 있어서 기다리는 중. PC를 켜면 자동으로 읽어요.</p><button class="ghost" onclick="resume('${id}')">상태 보기</button></div>`);
+    for (const id of stats){
+      const t = await api("GET", `status/${id}.json`); if (!t) continue;
+      const s = JSON.parse(t);
+      if (s.state === "ready") items.push(`<div class="card"><b>📋 ${idTime(id)} 사진 · 인쇄 안 함</b><p class="sub">${s.date||"날짜 없음"} · 읽기 끝남</p><button class="ghost" onclick="resume('${id}')">확인하고 인쇄하기</button></div>`);
+      else if (s.state === "reading" || s.state === "printing") items.push(`<div class="card"><b>⏳ ${idTime(id)} 처리 중</b><button class="ghost" onclick="resume('${id}')">상태 보기</button></div>`);
+    }
+    if (items.length) box.innerHTML = `<p style="font-weight:700;margin:18px 0 8px">밀린 작업</p>` + items.join("");
+  } catch(e) {}
+}
+function resume(id){ jobId = id; show("#vWait"); $("#waitMsg").textContent = "확인 중…"; $("#waitSub").textContent = ""; $("#pv").removeAttribute("src"); poll(Date.now()); }
 
 show(TOKEN ? "#vStart" : "#vNoToken");
+if (TOKEN) loadPending();
 </script>
 </body>
 </html>
