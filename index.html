@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>전진검사</title>
+<meta name="theme-color" content="#1f4e8c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="전진검사">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--ink:#1b2430;--sub:#5b6675;--line:#dfe3ea;--main:#1f4e8c;--mainInk:#fff;--ok:#1d7a46;--warn:#a15c00;--bad:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#12161c;--card:#1c222b;--ink:#e8ecf2;--sub:#9aa5b4;--line:#2c3440;--main:#4d8ad6;--mainInk:#fff;--ok:#4cc47f;--warn:#e0a040;--bad:#ff7a70}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+header{background:var(--main);color:var(--mainInk);padding:calc(14px + env(safe-area-inset-top)) 16px 14px;font-weight:700;font-size:19px}
+main{padding:16px;max-width:560px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.big{display:block;width:100%;padding:20px;border:0;border-radius:14px;font-size:20px;font-weight:700;background:var(--main);color:var(--mainInk);margin-bottom:10px}
+.ghost{display:block;width:100%;padding:14px;border:1px solid var(--line);border-radius:12px;font-size:16px;background:var(--card);color:var(--ink)}
+.big:disabled{opacity:.5}
+input[type=file]{display:none}
+label.row{display:flex;align-items:center;gap:10px;margin:10px 0}
+label.row span{width:78px;flex:none;font-weight:600}
+label.row input{flex:1;min-width:0;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:16px;background:var(--bg);color:var(--ink)}
+label.row b{width:44px;flex:none;text-align:right;color:var(--sub);font-weight:600}
+.msg{font-size:17px;text-align:center;padding:8px 0}
+.sub{color:var(--sub);font-size:14px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+img.pv{width:100%;border-radius:10px;margin-top:6px}
+.spin{width:34px;height:34px;border:4px solid var(--line);border-top-color:var(--main);border-radius:50%;margin:10px auto;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+.hide{display:none}
+</style>
+</head>
+<body>
+<header>사내 전진검사 · 체크리스트 인쇄</header>
+<main>
+  <section id="vNoToken" class="card hide">
+    <p class="msg">처음 한 번만 연결이 필요해요.</p>
+    <p class="sub">사무실 PC의 <b>폰연결 설정</b> 화면에 나온 QR코드를 휴대폰 카메라로 찍어서 들어오세요.</p>
+  </section>
+
+  <section id="vStart" class="hide">
+    <button class="big" onclick="$('#cam').click()">📷 현황표 사진 찍기</button>
+    <button class="ghost" onclick="$('#pick').click()">🖼 앨범에서 고르기</button>
+    <input id="cam" type="file" accept="image/*" capture="environment">
+    <input id="pick" type="file" accept="image/*">
+    <p class="sub" style="margin-top:14px">사진을 올리면 사무실 PC가 날짜와 번호를 읽어서 알려줘요. 확인하고 [인쇄]를 누르면 사무실 프린터로 나와요.</p>
+  </section>
+
+  <section id="vWait" class="card hide">
+    <div class="spin"></div>
+    <p class="msg" id="waitMsg">올리는 중…</p>
+    <p class="sub" id="waitSub" style="text-align:center"></p>
+    <img id="pv" class="pv" alt="">
+  </section>
+
+  <section id="vReady" class="card hide">
+    <p class="msg">읽은 내용이 맞는지 확인하세요</p>
+    <label class="row"><span>검사일</span><input id="fDate" type="date"></label>
+    <label class="row"><span>AC A</span><input id="f_AC_A" inputmode="text"><b id="c_AC_A"></b></label>
+    <label class="row"><span>AC B</span><input id="f_AC_B" inputmode="text"><b id="c_AC_B"></b></label>
+    <label class="row"><span>DC A</span><input id="f_DC_A" inputmode="text"><b id="c_DC_A"></b></label>
+    <label class="row"><span>DC C</span><input id="f_DC_C" inputmode="text"><b id="c_DC_C"></b></label>
+    <p class="sub">번호만. 예) 245~254, 260 &nbsp;·&nbsp; 틀린 곳은 직접 고치면 돼요.</p>
+    <p class="warn" id="unsure"></p>
+    <button class="big" id="btnPrint" onclick="doPrint()">인쇄</button>
+    <button class="ghost" onclick="reset()">다시 찍기</button>
+  </section>
+
+  <section id="vDone" class="card hide">
+    <p class="msg" id="doneMsg"></p>
+    <p class="sub" id="doneSub" style="text-align:center"></p>
+    <button class="big" onclick="reset()">새로 찍기</button>
+  </section>
+</main>
+<script>
+const OWNER = "wp98083", REPO = "jeonjin-data";
+const KEYS = ["AC_A","AC_B","DC_A","DC_C"];
+const $ = s => document.querySelector(s);
+let TOKEN = null, jobId = null, pollTimer = null;
+
+// 토큰: QR 주소의 #t=... 로 처음 한 번 받아서 이 폰에만 저장
+(function(){
+  const m = location.hash.match(/t=([^&]+)/);
+  if (m) { try { localStorage.setItem("jj_token", decodeURIComponent(m[1])); } catch(e){}
+           TOKEN = decodeURIComponent(m[1]); history.replaceState(null, "", location.pathname); }
+  if (!TOKEN) { try { TOKEN = localStorage.getItem("jj_token"); } catch(e){} }
+})();
+
+function show(id){ ["#vNoToken","#vStart","#vWait","#vReady","#vDone"].forEach(v=>$(v).classList.toggle("hide", v!==id)); }
+
+async function api(method, path, body){
+  const r = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${path}` + (method==="GET" ? `?t=${Date.now()}` : ""), {
+    method, cache:"no-store",
+    headers:{ "Authorization":"Bearer "+TOKEN, "Accept": method==="GET" ? "application/vnd.github.raw" : "application/vnd.github+json" },
+    body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 404) return null;
+  if (r.status === 401) throw new Error("연결 비밀번호가 맞지 않아요. PC의 QR을 다시 찍어 주세요.");
+  if (!r.ok) throw new Error("GitHub 오류 " + r.status);
+  return method==="GET" ? r.text() : r.json();
+}
+const b64 = s => btoa(unescape(encodeURIComponent(s)));
+
+function newId(){ const d=new Date(), p=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}_${Math.random().toString(36).slice(2,6)}`; }
+
+async function shrink(file){   // 긴 쪽 2400px, JPEG
+  const img = await createImageBitmap(file, {imageOrientation:"from-image"}).catch(()=>null);
+  if (!img) return new Uint8Array(await file.arrayBuffer());
+  const k = Math.min(1, 2400 / Math.max(img.width, img.height));
+  const c = document.createElement("canvas"); c.width = Math.round(img.width*k); c.height = Math.round(img.height*k);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+function bytesToB64(u8){ let s=""; for (let i=0;i<u8.length;i+=0x8000) s += String.fromCharCode.apply(null, u8.subarray(i,i+0x8000)); return btoa(s); }
+
+async function onPhoto(e){
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  show("#vWait"); $("#waitMsg").textContent = "올리는 중…"; $("#waitSub").textContent = "";
+  $("#pv").src = URL.createObjectURL(f);
+  try {
+    const data = await shrink(f);
+    jobId = newId();
+    await api("PUT", `inbox/${jobId}.jpg`, { message:"phone", content: bytesToB64(data) });
+    $("#waitMsg").textContent = "PC가 사진을 읽는 중… (보통 30초~1분)";
+    poll(Date.now());
+  } catch(err){ fail(err.message); }
+}
+$("#cam").addEventListener("change", onPhoto);
+$("#pick").addEventListener("change", onPhoto);
+
+function poll(start){
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    try {
+      const t = await api("GET", `status/${jobId}.json`);
+      const s = t ? JSON.parse(t) : null;
+      const sec = Math.round((Date.now()-start)/1000);
+      if (!s) { $("#waitSub").textContent = sec > 60 ? "⚠ PC가 아직 안 받았어요. 사무실 PC가 켜져 있는지 확인하세요." : "";
+                return poll(start); }
+      if (s.state === "reading" || s.state === "printing") { $("#waitSub").textContent = `${sec}초 지남`; return poll(start); }
+      if (s.state === "ready") return showReady(s);
+      if (s.state === "printed") return done(`✅ 인쇄 완료 · 총 ${s.pages}장`, (s.summary||[]).join("\n") + (s.printer ? `\n(${s.printer})` : ""));
+      if (s.state === "error") return fail(s.error || "PC에서 오류가 났어요.");
+      poll(start);
+    } catch(err){ $("#waitSub").textContent = "인터넷 확인 중… " + err.message; poll(start); }
+  }, 4000);
+}
+
+function parseNums(s){
+  s = (s||"").replace(/[A-Za-z]/g,""); const out = new Set();
+  for (const tok of s.split(/[,\s/]+/).filter(Boolean)){
+    let m = tok.match(/^(\d+)[~\-](\d+)$/);
+    if (m){ const a=+m[1], b=+m[2]; if (b<a || b-a>200) return null; for (let i=a;i<=b;i++) out.add(i); }
+    else if (/^\d+$/.test(tok)) out.add(+tok); else return null;
+  }
+  return out.size;
+}
+function recount(){
+  let total = 0, bad = false;
+  for (const k of KEYS){ const n = parseNums($("#f_"+k).value); $("#c_"+k).textContent = n===null ? "?" : (n ? n+"장" : "");
+    if (n===null) bad = true; else total += n; }
+  const b = $("#btnPrint"); b.disabled = bad || total===0 || !$("#fDate").value;
+  b.textContent = bad ? "번호를 확인하세요" : `인쇄 (총 ${total}장)`;
+}
+KEYS.forEach(k => $("#f_"+k).addEventListener("input", recount));
+$("#fDate").addEventListener("input", recount);
+
+function showReady(s){
+  $("#fDate").value = s.date || "";
+  KEYS.forEach(k => $("#f_"+k).value = s[k] || "");
+  const u = (s.unsure||[]).filter(Boolean);
+  $("#unsure").textContent = (u.length ? "⚠ 확실하지 않음: " + u.join(", ") : "") + (s.date ? "" : (u.length?" · ":"") + "⚠ 날짜를 못 읽었어요. 직접 고르세요.");
+  recount(); show("#vReady");
+}
+
+async function doPrint(){
+  const job = { action:"print", date: $("#fDate").value };
+  KEYS.forEach(k => job[k] = $("#f_"+k).value);
+  show("#vWait"); $("#waitMsg").textContent = "인쇄 요청 보내는 중…"; $("#waitSub").textContent = ""; $("#pv").removeAttribute("src");
+  try {
+    await api("PUT", `cmd/${jobId}.json`, { message:"phone", content: b64(JSON.stringify(job)) });
+    $("#waitMsg").textContent = "PC가 인쇄하는 중…";
+    poll(Date.now());
+  } catch(err){ fail(err.message); }
+}
+
+function done(msg, sub){ clearTimeout(pollTimer); $("#doneMsg").innerHTML = `<span class="ok">${msg}</span>`; $("#doneSub").innerText = sub||""; show("#vDone"); }
+function fail(msg){ clearTimeout(pollTimer); $("#doneMsg").innerHTML = `<span class="bad">❌ 실패</span>`; $("#doneSub").innerText = msg; show("#vDone"); }
+function reset(){ clearTimeout(pollTimer); jobId = null; show("#vStart"); }
+
+show(TOKEN ? "#vStart" : "#vNoToken");
+</script>
+</body>
+</html>
